@@ -34,6 +34,11 @@ class SendMessageRequest(BaseModel):
     content: str
 
 
+class WebhookQueryRequest(BaseModel):
+    """Request for the webhook/n8n integration endpoint."""
+    query: str
+
+
 class ConversationMetadata(BaseModel):
     """Conversation metadata for list view."""
     id: str
@@ -192,6 +197,28 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
             "Connection": "keep-alive",
         }
     )
+
+
+@app.post("/api/webhook/query")
+async def webhook_query(request: WebhookQueryRequest):
+    """
+    Stateless webhook endpoint for n8n and other automation tools.
+    Runs the full 3-stage council process and returns results
+    without creating a persistent conversation.
+    """
+    stage1_results, stage2_results, stage3_result, metadata = await run_full_council(
+        request.query
+    )
+
+    return {
+        "query": request.query,
+        "council_response": stage3_result.get("response", ""),
+        "chairman_model": stage3_result.get("model", ""),
+        "individual_responses": stage1_results,
+        "rankings": stage2_results,
+        "aggregate_rankings": metadata.get("aggregate_rankings", []),
+        "label_to_model": metadata.get("label_to_model", {}),
+    }
 
 
 if __name__ == "__main__":
