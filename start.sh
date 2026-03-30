@@ -1,13 +1,14 @@
 #!/bin/bash
 
 # LLM Council - Start script
+UV_CACHE_DIR="${UV_CACHE_DIR:-.uv-cache}"
 
 echo "Starting LLM Council..."
 echo ""
 
 # Start backend
 echo "Starting backend on http://localhost:8001..."
-uv run python -m backend.main &
+UV_CACHE_DIR="$UV_CACHE_DIR" uv run python -m backend.main &
 BACKEND_PID=$!
 
 # Wait a bit for backend to start

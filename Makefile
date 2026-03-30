@@ -1,5 +1,7 @@
 .PHONY: help setup setup-backend setup-frontend run run-backend run-frontend stop clean lint env check-env n8n n8n-stop
 
+UV_CACHE_DIR ?= .uv-cache
+
 # Default target
 help: ## Show this help message
 	@echo "LLM Council - Makefile Commands"
@@ -13,7 +15,7 @@ setup: setup-backend setup-frontend ## Install all dependencies (backend + front
 	@echo "Setup complete! Run 'make run' to start the application."
 
 setup-backend: ## Install Python backend dependencies via uv
-	uv sync
+	UV_CACHE_DIR=$(UV_CACHE_DIR) uv sync
 
 setup-frontend: ## Install frontend npm dependencies
 	cd frontend && npm install
@@ -51,7 +53,7 @@ run: check-env ## Start both backend and frontend
 	@wait
 
 run-backend: ## Start the FastAPI backend (port 8001)
-	uv run python -m backend.main
+	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run python -m backend.main
 
 run-frontend: ## Start the Vite frontend dev server (port 5173)
 	cd frontend && npm run dev
