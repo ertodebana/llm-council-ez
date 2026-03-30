@@ -2,7 +2,14 @@
 
 from typing import List, Dict, Any, Tuple
 from .openrouter import query_models_parallel, query_model
-from .config import COUNCIL_MODELS, CHAIRMAN_MODEL
+from .config import (
+    CHAIRMAN_MODEL,
+    CHAIRMAN_RANKING_SYSTEM_PROMPT,
+    CHAIRMAN_SYNTHESIS_SYSTEM_PROMPT,
+    COUNCIL_MEMBER_SYSTEM_PROMPT,
+    COUNCIL_MODELS,
+    TITLE_SYSTEM_PROMPT,
+)
 
 
 async def stage1_collect_responses(user_query: str) -> List[Dict[str, Any]]:
@@ -15,7 +22,10 @@ async def stage1_collect_responses(user_query: str) -> List[Dict[str, Any]]:
     Returns:
         List of dicts with 'model' and 'response' keys
     """
-    messages = [{"role": "user", "content": user_query}]
+    messages = [
+        {"role": "system", "content": COUNCIL_MEMBER_SYSTEM_PROMPT},
+        {"role": "user", "content": user_query},
+    ]
 
     # Query all models in parallel
     responses = await query_models_parallel(COUNCIL_MODELS, messages)
@@ -61,16 +71,16 @@ async def stage2_collect_rankings(
         for label, result in zip(labels, stage1_results)
     ])
 
-    ranking_prompt = f"""You are evaluating different responses to the following question:
+    ranking_prompt = f"""Evaluate the candidate answers to the following question:
 
 Question: {user_query}
 
-Here are the responses from different models (anonymized):
+Here are the anonymized responses:
 
 {responses_text}
 
 Your task:
-1. First, evaluate each response individually. For each response, explain what it does well and what it does poorly.
+1. Evaluate each response briefly. For each response, explain what it does well and what it does poorly.
 2. Then, at the very end of your response, provide a final ranking.
 
 IMPORTANT: Your final ranking MUST be formatted EXACTLY as follows:
@@ -92,22 +102,22 @@ FINAL RANKING:
 
 Now provide your evaluation and ranking:"""
 
-    messages = [{"role": "user", "content": ranking_prompt}]
+    messages = [
+        {"role": "system", "content": CHAIRMAN_RANKING_SYSTEM_PROMPT},
+        {"role": "user", "content": ranking_prompt},
+    ]
 
-    # Get rankings from all council models in parallel
-    responses = await query_models_parallel(COUNCIL_MODELS, messages)
+    response = await query_model(CHAIRMAN_MODEL, messages)
 
-    # Format results
     stage2_results = []
-    for model, response in responses.items():
-        if response is not None:
-            full_text = response.get('content', '')
-            parsed = parse_ranking_from_text(full_text)
-            stage2_results.append({
-                "model": model,
-                "ranking": full_text,
-                "parsed_ranking": parsed
-            })
+    if response is not None:
+        full_text = response.get('content', '')
+        parsed = parse_ranking_from_text(full_text)
+        stage2_results.append({
+            "model": CHAIRMAN_MODEL,
+            "ranking": full_text,
+            "parsed_ranking": parsed
+        })
 
     return stage2_results, label_to_model
 
@@ -115,7 +125,8 @@ Now provide your evaluation and ranking:"""
 async def stage3_synthesize_final(
     user_query: str,
     stage1_results: List[Dict[str, Any]],
-    stage2_results: List[Dict[str, Any]]
+    stage2_results: List[Dict[str, Any]],
+    label_to_model: Dict[str, str],
 ) -> Dict[str, Any]:
     """
     Stage 3: Chairman synthesizes final response.
@@ -124,6 +135,7 @@ async def stage3_synthesize_final(
         user_query: The original user query
         stage1_results: Individual model responses from Stage 1
         stage2_results: Rankings from Stage 2
+        label_to_model: Mapping from response labels to model names
 
     Returns:
         Dict with 'model' and 'response' keys
@@ -134,29 +146,30 @@ async def stage3_synthesize_final(
         for result in stage1_results
     ])
 
-    stage2_text = "\n\n".join([
-        f"Model: {result['model']}\nRanking: {result['ranking']}"
-        for result in stage2_results
-    ])
+    stage2_text = "\n".join([
+        f"{index}. {label_to_model.get(label, label)}"
+        for index, label in enumerate(
+            stage2_results[0].get("parsed_ranking", []),
+            start=1,
+        )
+    ]) if stage2_results else "No ranking available."
 
-    chairman_prompt = f"""You are the Chairman of an LLM Council. Multiple AI models have provided responses to a user's question, and then ranked each other's responses.
+    chairman_prompt = f"""Multiple AI models have provided responses to a user's question. You have already reviewed them and produced a ranking.
 
 Original Question: {user_query}
 
 STAGE 1 - Individual Responses:
 {stage1_text}
 
-STAGE 2 - Peer Rankings:
+STAGE 2 - Chairman Ranking:
 {stage2_text}
 
-Your task as Chairman is to synthesize all of this information into a single, comprehensive, accurate answer to the user's original question. Consider:
-- The individual responses and their insights
-- The peer rankings and what they reveal about response quality
-- Any patterns of agreement or disagreement
+Provide a clear final answer to the user that uses the best parts of the strongest responses:"""
 
-Provide a clear, well-reasoned final answer that represents the council's collective wisdom:"""
-
-    messages = [{"role": "user", "content": chairman_prompt}]
+    messages = [
+        {"role": "system", "content": CHAIRMAN_SYNTHESIS_SYSTEM_PROMPT},
+        {"role": "user", "content": chairman_prompt},
+    ]
 
     # Query the chairman model
     response = await query_model(CHAIRMAN_MODEL, messages)
@@ -272,7 +285,10 @@ Question: {user_query}
 
 Title:"""
 
-    messages = [{"role": "user", "content": title_prompt}]
+    messages = [
+        {"role": "system", "content": TITLE_SYSTEM_PROMPT},
+        {"role": "user", "content": title_prompt},
+    ]
 
     # Use gemini-2.5-flash for title generation (fast and cheap)
     response = await query_model("google/gemini-2.5-flash", messages, timeout=30.0)
@@ -323,7 +339,8 @@ async def run_full_council(user_query: str) -> Tuple[List, List, Dict, Dict]:
     stage3_result = await stage3_synthesize_final(
         user_query,
         stage1_results,
-        stage2_results
+        stage2_results,
+        label_to_model,
     )
 
     # Prepare metadata
