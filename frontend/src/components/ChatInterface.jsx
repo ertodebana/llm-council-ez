@@ -120,7 +120,7 @@ export default function ChatInterface({
         <div ref={messagesEndRef} />
       </div>
 
-      {conversation && (
+      {conversation.messages.length === 0 && (
         <form className="input-form" onSubmit={handleSubmit}>
           <textarea
             className="message-input"

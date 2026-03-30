@@ -62,6 +62,14 @@ function App() {
 
     setIsLoading(true);
     try {
+      // Optimistically add user message to UI
+      const userMessage = { role: 'user', content };
+      setCurrentConversation((prev) => ({
+        ...prev,
+        messages: [...prev.messages, userMessage],
+      }));
+
+      // Create a partial assistant message that will be updated progressively
       const assistantMessage = {
         role: 'assistant',
         stage1: null,
@@ -69,20 +77,16 @@ function App() {
         stage3: null,
         metadata: null,
         loading: {
-          stage1: true,
+          stage1: false,
           stage2: false,
           stage3: false,
         },
       };
 
-      // Optimistically add the full exchange to UI
+      // Add the partial assistant message
       setCurrentConversation((prev) => ({
         ...prev,
-        messages: [
-          ...prev.messages,
-          { role: 'user', content },
-          assistantMessage,
-        ],
+        messages: [...prev.messages, assistantMessage],
       }));
 
       // Send message with streaming
@@ -154,16 +158,6 @@ function App() {
 
           case 'error':
             console.error('Stream error:', event.message);
-            setCurrentConversation((prev) => {
-              const messages = [...prev.messages];
-              const lastMsg = messages[messages.length - 1];
-              lastMsg.loading = { stage1: false, stage2: false, stage3: false };
-              lastMsg.stage3 = {
-                model: 'error',
-                response: event.message || 'Streaming failed.',
-              };
-              return { ...prev, messages };
-            });
             setIsLoading(false);
             break;
 
@@ -173,18 +167,11 @@ function App() {
       });
     } catch (error) {
       console.error('Failed to send message:', error);
-      setCurrentConversation((prev) => {
-        const messages = [...prev.messages];
-        const lastMsg = messages[messages.length - 1];
-        if (lastMsg?.role === 'assistant') {
-          lastMsg.loading = { stage1: false, stage2: false, stage3: false };
-          lastMsg.stage3 = {
-            model: 'error',
-            response: error.message || 'Failed to send message.',
-          };
-        }
-        return { ...prev, messages };
-      });
+      // Remove optimistic messages on error
+      setCurrentConversation((prev) => ({
+        ...prev,
+        messages: prev.messages.slice(0, -2),
+      }));
       setIsLoading(false);
     }
   };
