@@ -150,11 +150,6 @@ function App() {
             });
             break;
 
-          case 'title_complete':
-            // Reload conversations to get updated title
-            loadConversations();
-            break;
-
           case 'complete':
             // Stream complete, reload conversations list
             loadConversations();
